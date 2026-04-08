@@ -1,0 +1,5 @@
+build/
+vnl.iso
+iso/boot/vnl.kernel
+*.o
+*.a
