@@ -33,8 +33,9 @@ static void kputchar(char c)
         }
         return;
     }
-    vga_putchar(c);
+    /* Serial first: real hardware may have no usable VGA text (UEFI GOP-only). */
     serial_putchar(c);
+    vga_putchar(c);
 }
 
 static void kputs_raw(const char *s)
