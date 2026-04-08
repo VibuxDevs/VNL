@@ -33,3 +33,5 @@ typedef struct PACKED {
 } TSS;
 
 void gdt_init(void);
+/* Kernel entry stack for interrupts from ring 3 (per HW manual). */
+void tss_set_rsp0(uint64_t rsp0);

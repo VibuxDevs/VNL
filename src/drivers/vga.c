@@ -1,4 +1,5 @@
 #include "vga.h"
+#include "fb.h"
 #include "string.h"
 #include "cpu.h"
 
@@ -32,11 +33,18 @@ void vga_set_color(VGAColor fg, VGAColor bg)
     cur_color = (uint8_t)((bg << 4) | (fg & 0x0F));
 }
 
+uint8_t vga_get_attr(void) { return cur_color; }
+
 void vga_set_cursor(int row, int col)
 {
+    if (row < 0) row = 0;
+    if (row >= VGA_HEIGHT) row = VGA_HEIGHT - 1;
+    if (col < 0) col = 0;
+    if (col >= VGA_WIDTH) col = VGA_WIDTH - 1;
     cur_row = row;
     cur_col = col;
     update_hw_cursor();
+    fb_console_mirror_cursor(row, col);
 }
 
 void vga_get_cursor(int *row, int *col)
@@ -54,6 +62,7 @@ void vga_clear(void)
         VGA_MEM[i] = make_entry(' ', cur_color);
     cur_row = cur_col = 0;
     update_hw_cursor();
+    fb_console_reset();
 }
 
 static void scroll(void)
@@ -88,6 +97,7 @@ void vga_putchar(char c)
     }
     if (cur_row >= VGA_HEIGHT) scroll();
     update_hw_cursor();
+    fb_console_putchar(c);
 }
 
 void vga_puts(const char *s)
@@ -98,6 +108,18 @@ void vga_puts(const char *s)
 void vga_init(void)
 {
     cur_color = 0;
-    vga_set_color(VGA_WHITE, VGA_BLACK);
+    vga_set_color(VGA_LGREEN, VGA_BLACK);
     vga_clear();
+}
+
+void vga_export_fb_mirror_once(void)
+{
+    if (!fb_is_available()) return;
+    fb_console_import_vga_buffer(VGA_MEM, cur_row, cur_col);
+}
+
+void vga_fb_mirror_refresh(void)
+{
+    if (!fb_is_available()) return;
+    fb_console_import_vga_buffer(VGA_MEM, cur_row, cur_col);
 }

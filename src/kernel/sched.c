@@ -1,11 +1,16 @@
 #include "sched.h"
 #include "idt.h"
 #include "cpu.h"
+#include "gdt.h"
 #include "heap.h"
 #include "timer.h"
 #include "string.h"
 #include "printf.h"
 #include "panic.h"
+
+extern char boot_stack_top[];
+
+uint64_t sched_pending_cr3;
 
 /* ---- Task table -------------------------------------------------- */
 static Task   tasks[MAX_TASKS];
@@ -59,6 +64,24 @@ static uint64_t *build_fake_frame(uint8_t *stack_top, void (*entry)(void))
     return frame;
 }
 
+static uint64_t *build_user_frame(uint8_t *stack_top, uint64_t rip, uint64_t rsp3)
+{
+    uint64_t *frame = (uint64_t *)stack_top - FRAME_WORDS;
+    for (int i = 0; i < FRAME_WORDS; i++) frame[i] = 0;
+    frame[0]  = 0x23;
+    frame[1]  = 0x23;
+    frame[2]  = 0x23;
+    frame[3]  = 0x23;
+    frame[19] = 0;
+    frame[20] = 0;
+    frame[21] = rip;
+    frame[22] = 0x1B;
+    frame[23] = 0x202;
+    frame[24] = rsp3;
+    frame[25] = 0x23;
+    return frame;
+}
+
 /* ---- Round-robin picker ------------------------------------------ */
 static uint64_t do_switch(uint64_t cur_rsp)
 {
@@ -84,6 +107,13 @@ static uint64_t do_switch(uint64_t cur_rsp)
 
     tasks[next].state = TASK_RUNNING;
     current_idx = next;
+
+    sched_pending_cr3 = tasks[next].cr3_phys;
+    uint64_t ktop = tasks[next].stack_base
+                        ? (uint64_t)(tasks[next].stack_base + TASK_STACK_SZ)
+                        : (uint64_t)boot_stack_top;
+    tss_set_rsp0(ktop);
+
     return tasks[next].rsp;
 }
 
@@ -118,6 +148,9 @@ void sched_init(void)
     tasks[0].state = TASK_RUNNING;
     tasks[0].rsp   = 0;          /* filled in on first preemption */
     tasks[0].stack_base = NULL;  /* uses boot stack */
+    tasks[0].cr3_phys = read_cr3();
+    tasks[0].brk_start = tasks[0].brk_end = 0;
+    tasks[0].mmap_next = 0x40000000ULL;
     strncpy(tasks[0].name, "kernel", sizeof(tasks[0].name) - 1);
     num_tasks = 1;
     current_idx = 0;
@@ -141,6 +174,10 @@ int task_create(const char *name, void (*entry)(void))
     t->pid   = next_pid++;
     t->state = TASK_READY;
     t->sleep_until = 0;
+    t->cr3_phys = tasks[0].cr3_phys;
+    t->brk_start = 0;
+    t->brk_end = 0;
+    t->mmap_next = 0;
     strncpy(t->name, name, sizeof(t->name) - 1);
 
     uint64_t *frame = build_fake_frame(stack + TASK_STACK_SZ, entry);
@@ -149,6 +186,46 @@ int task_create(const char *name, void (*entry)(void))
     int pid = (int)t->pid;
     num_tasks++;
     return pid;
+}
+
+int task_create_user(const char *name, uint64_t cr3_phys, uint64_t rip, uint64_t user_rsp,
+                     uint64_t brk_start, uint64_t brk_end)
+{
+    if (num_tasks >= MAX_TASKS) return -1;
+    uint8_t *stack = (uint8_t *)kmalloc(TASK_STACK_SZ);
+    if (!stack) return -1;
+    Task *t = &tasks[num_tasks];
+    t->stack_base     = stack;
+    t->pid            = next_pid++;
+    t->state          = TASK_READY;
+    t->sleep_until    = 0;
+    t->cr3_phys       = cr3_phys;
+    t->brk_start      = brk_start;
+    t->brk_end        = brk_end;
+    t->mmap_next      = 0x40000000ULL;
+    strncpy(t->name, name, sizeof(t->name) - 1);
+    uint64_t *frame = build_user_frame(stack + TASK_STACK_SZ, rip, user_rsp);
+    t->rsp = (uint64_t)frame;
+    int pid = (int)t->pid;
+    num_tasks++;
+    return pid;
+}
+
+bool sched_pid_alive(uint32_t pid)
+{
+    for (int i = 0; i < num_tasks; i++) {
+        if (tasks[i].pid == pid)
+            return tasks[i].state != TASK_DEAD;
+    }
+    return false;
+}
+
+void sched_wait_pid(uint32_t pid)
+{
+    /* Yield here (not only hlt) so the child reliably runs: a running shell
+     * must not depend solely on the timer preempting out of the wait loop. */
+    while (sched_pid_alive(pid))
+        sched_yield();
 }
 
 void task_exit(void)

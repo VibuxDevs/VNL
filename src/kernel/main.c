@@ -8,13 +8,14 @@
  *   3. IDT (exception/interrupt vectors)
  *   4. IRQ (PIC remapping)
  *   5. PMM (physical memory manager)
- *   6. VMM (virtual memory manager)
- *   7. Heap (kernel malloc)
- *   8. Timer (PIT, 1000 Hz)
- *   9. Keyboard
- *  10. Syscall (INT 0x80)
- *  11. STI (enable interrupts)
- *  12. Kernel shell
+ *   6. Linear framebuffer (so VNC / GOP shows the same text as VGA)
+ *   7. VMM (virtual memory manager)
+ *   8. Heap (kernel malloc)
+ *   9. Timer (PIT, 1000 Hz)
+ *  10. Keyboard
+ *  11. Syscall (INT 0x80)
+ *  12. STI (enable interrupts)
+ *  13. Kernel shell
  */
 #include "types.h"
 #include "vga.h"
@@ -28,12 +29,16 @@
 #include "heap.h"
 #include "timer.h"
 #include "keyboard.h"
+#include "fb.h"
 #include "syscall.h"
 #include "panic.h"
 #include "vfs.h"
 #include "pci.h"
 #include "acpi.h"
 #include "sched.h"
+#include "devfs.h"
+#include "unix_socket.h"
+#include "x11_env.h"
 
 extern uint8_t kernel_end[];
 void shell_run(void);
@@ -77,7 +82,7 @@ static uint64_t parse_mb2_memory(uint64_t mb_info_phys)
 /* ---- Boot banner ------------------------------------------------- */
 static void print_banner(void)
 {
-    vga_set_color(VGA_YELLOW, VGA_BLACK);
+    vga_set_color(VGA_LGREEN, VGA_BLACK);
     kprintf(
         "\n"
         "  ____   ____  _   _   _  __  __\n"
@@ -87,10 +92,10 @@ static void print_banner(void)
         " |____/ \\____||_| \\_| |_||_|  |_|\n"
         "\n"
     );
-    vga_set_color(VGA_LCYAN, VGA_BLACK);
-    kprintf("  Vibe Not Linux v0.2.0 — 64-bit kernel\n");
+    vga_set_color(VGA_YELLOW, VGA_BLACK);
+    kprintf("  Vibe Not Linux v0.2.0 - 64-bit kernel\n");
     kprintf("  Built: " __DATE__ " " __TIME__ "\n\n");
-    vga_set_color(VGA_WHITE, VGA_BLACK);
+    vga_set_color(VGA_LGREEN, VGA_BLACK);
 }
 
 /* ---- Entry point ------------------------------------------------- */
@@ -99,8 +104,6 @@ void kernel_main(uint32_t magic, uint64_t mb_info)
     /* Step 1: Early output */
     serial_init();
     vga_init();
-
-    print_banner();
 
     /* Verify Multiboot2 */
     if (magic != MB2_MAGIC_VAL) {
@@ -135,6 +138,16 @@ void kernel_main(uint32_t magic, uint64_t mb_info)
             (pmm_total_pages() * PAGE_SIZE) / (1024*1024),
             pmm_free_pages());
 
+    kprintf("[INIT] Framebuffer...\n");
+    if (mb_info && fb_multiboot_init(mb_info)) {
+        fb_console_reset();
+        vga_export_fb_mirror_once();
+        kprintf("       linear framebuffer OK (mirrored for VNC)\n");
+    } else
+        kprintf("       (none - text console only)\n");
+
+    print_banner();
+
     /* Step 6: Virtual memory manager */
     kprintf("[INIT] VMM...\n");
     vmm_init();
@@ -152,9 +165,18 @@ void kernel_main(uint32_t magic, uint64_t mb_info)
     kprintf("[INIT] Keyboard...\n");
     keyboard_init();
 
+    /* PS/2 mouse driver remains in-tree but is not started at boot. */
+
     /* Step 10: VFS */
     kprintf("[INIT] VFS (ramfs)...\n");
     vfs_init();
+
+    kprintf("[INIT] devfs (/dev/fb0, /dev/null) + mmap/ioctl (Xorg/DRI groundwork)...\n");
+    devfs_init();
+
+    kprintf("[INIT] AF_UNIX sockets + X11/DE directory layout...\n");
+    unix_socket_init();
+    x11_environment_init();
 
     /* Step 11: PCI */
     kprintf("[INIT] PCI...\n");

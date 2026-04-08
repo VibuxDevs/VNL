@@ -27,9 +27,15 @@ ISO        := vnl.iso
 
 all: $(KERNEL)
 
-$(KERNEL): $(ASM_OBJS) $(C_OBJS)
+$(BUILDDIR)/vnl-x.elf: userspace/vnl-x.S userspace/vnl-x.ld
+	@mkdir -p $(dir $@)
+	$(CC) -m64 -nostdlib -static -O2 -fno-stack-protector -T userspace/vnl-x.ld -o $@ userspace/vnl-x.S
+
+$(BUILDDIR)/kernel/vnl_elf_blob.asm.o: $(BUILDDIR)/vnl-x.elf
+
+$(KERNEL): $(ASM_OBJS) $(C_OBJS) $(BUILDDIR)/vnl-x.elf
 	@mkdir -p $(BUILDDIR)
-	$(LD) $(LDFLAGS) -o $@ $^
+	$(LD) $(LDFLAGS) -o $@ $(ASM_OBJS) $(C_OBJS)
 	@echo "[LD]  $@"
 
 $(BUILDDIR)/%.asm.o: $(SRCDIR)/%.asm

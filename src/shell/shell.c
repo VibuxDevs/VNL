@@ -13,6 +13,10 @@
 #include "acpi.h"
 #include "panic.h"
 #include "sh.h"
+#include "user_task.h"
+#include "fb.h"
+#include "x11_session.h"
+#include "elf_load.h"
 
 #define CMD_MAX    256
 #define ARG_MAX    16
@@ -33,14 +37,29 @@ static void push_history(const char *line) {
 static int readline(char *buf, int maxlen) {
     int len = 0, cur = 0;
     int hist_idx = hist_count;
+    vga_set_color(VGA_WHITE, VGA_BLACK);
     int start_row = vga_get_row();
     int start_col = vga_get_col();
+    if (start_col < 0) start_col = 0;
+    if (start_col > 79) start_col = 79;
     int limit = maxlen - 1;
     if (start_col + limit > 79) limit = 79 - start_col;
+    /* No room on this row (e.g. cursor stuck at col 79): start on next line. */
+    if (limit < 1) {
+        vga_putchar('\n');
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+        start_row = vga_get_row();
+        start_col = vga_get_col();
+        if (start_col > 79) start_col = 0;
+        limit = maxlen - 1;
+        if (start_col + limit > 79) limit = 79 - start_col;
+    }
+    if (limit < 1) limit = 1;
 
     while (1) {
         int k = keyboard_getkey();
         if (k == '\n') {
+            vga_set_color(VGA_WHITE, VGA_BLACK);
             vga_set_cursor(start_row, start_col + len);
             vga_putchar('\n');
             buf[len] = '\0';
@@ -51,6 +70,7 @@ static int readline(char *buf, int maxlen) {
                 int old = len;
                 memmove(buf+cur-1, buf+cur, (size_t)(len-cur));
                 cur--; len--; buf[len] = '\0';
+                vga_set_color(VGA_WHITE, VGA_BLACK);
                 vga_set_cursor(start_row, start_col);
                 for (int i = 0; i < len; i++) vga_putchar(buf[i]);
                 for (int i = len; i < old; i++) vga_putchar(' ');
@@ -63,6 +83,7 @@ static int readline(char *buf, int maxlen) {
                 int old = len;
                 memmove(buf+cur, buf+cur+1, (size_t)(len-cur-1));
                 len--; buf[len] = '\0';
+                vga_set_color(VGA_WHITE, VGA_BLACK);
                 vga_set_cursor(start_row, start_col);
                 for (int i = 0; i < len; i++) vga_putchar(buf[i]);
                 for (int i = len; i < old; i++) vga_putchar(' ');
@@ -80,6 +101,7 @@ static int readline(char *buf, int maxlen) {
                 int old = len;
                 strncpy(buf, history[hist_idx % HIST_MAX], (size_t)limit);
                 buf[limit] = '\0'; len = cur = (int)strlen(buf);
+                vga_set_color(VGA_WHITE, VGA_BLACK);
                 vga_set_cursor(start_row, start_col);
                 for (int i = 0; i < len; i++) vga_putchar(buf[i]);
                 for (int i = len; i < old; i++) vga_putchar(' ');
@@ -94,6 +116,7 @@ static int readline(char *buf, int maxlen) {
                 if (hist_idx == hist_count) { buf[0] = '\0'; len = cur = 0; }
                 else { strncpy(buf, history[hist_idx % HIST_MAX], (size_t)limit); buf[limit]='\0'; len=cur=(int)strlen(buf); }
             }
+            vga_set_color(VGA_WHITE, VGA_BLACK);
             vga_set_cursor(start_row, start_col);
             for (int i = 0; i < len; i++) vga_putchar(buf[i]);
             for (int i = len; i < old; i++) vga_putchar(' ');
@@ -104,6 +127,7 @@ static int readline(char *buf, int maxlen) {
             int old = len;
             memmove(buf+cur+1, buf+cur, (size_t)(len-cur));
             buf[cur] = (char)k; cur++; len++; buf[len] = '\0';
+            vga_set_color(VGA_WHITE, VGA_BLACK);
             vga_set_cursor(start_row, start_col);
             for (int i = 0; i < len; i++) vga_putchar(buf[i]);
             for (int i = len; i < old; i++) vga_putchar(' ');
@@ -247,7 +271,7 @@ static void cmd_help(int c, char **v)   { (void)c;(void)v;
     kprintf("Commands: help neofetch uname mem uptime clear echo color hello\n");
     kprintf("          ls cat write mkdir rm cd pwd\n");
     kprintf("          ps kill sleep lspci poweroff reboot panic halt\n");
-    kprintf("          sh bash eval source\n");
+    kprintf("          sh bash eval source ring3test startx x11info\n");
     kprintf("          grep wc head tail sort uniq tr tee\n");
     kprintf("Shell: Variables, if/while/for, pipes, redirects, functions\n");
 }
@@ -277,7 +301,7 @@ static void cmd_hello(int c, char **v) { (void)c;(void)v;
     kprintf(" \\___ \\| |    | |_| | |    \n");
     kprintf("  ___) | |___ |  _  | |___ \n");
     kprintf(" |____/ \\____||_| |_|_____|\n");
-    kprintf("\n  Vibe Not Linux — It's a vibe.\n\n");
+    kprintf("\n  Vibe Not Linux - It's a vibe.\n\n");
     vga_set_color(VGA_WHITE, VGA_BLACK);
 }
 
@@ -521,7 +545,18 @@ static void cmd_ls(int argc, char **argv) {
     char names[VFS_MAX_NODES][VFS_NAME_MAX];
     int n = vfs_readdir(path, names, VFS_MAX_NODES);
     if (n < 0) { kprintf("ls: %s: no such directory\n", path); return; }
-    for (int i=0; i<n; i++) kprintf("%s\n", names[i]);
+    for (int i = 0; i < n; i++) {
+        size_t L = strlen(names[i]);
+        bool is_dir = (L > 0 && names[i][L - 1] == '/');
+        if (is_dir)
+            vga_set_color(VGA_LBLUE, VGA_BLACK);
+        else
+            vga_set_color(VGA_WHITE, VGA_BLACK);
+        if (is_dir && L > 0) names[i][L - 1] = '\0';
+        kprintf("%s\n", names[i]);
+        if (is_dir && L > 0) names[i][L - 1] = '/';
+    }
+    vga_set_color(VGA_WHITE, VGA_BLACK);
 }
 static void cmd_cat(int argc, char **argv) {
     if (argc<2) { kprintf("Usage: cat <file>\n"); return; }
@@ -620,6 +655,57 @@ static void cmd_source(int argc, char **argv) {
     sh_run_file(argv[1]);
 }
 
+static void cmd_ring3test(int c, char **v) {
+    (void)c;
+    (void)v;
+    user_ring3_demo_spawn();
+}
+
+static void cmd_x11info(int c, char **v) {
+    (void)c;
+    (void)v;
+    kprintf("X11/DE staging (kernel-side):\n");
+    kprintf("  GRUB default: linear fb 1024x768 + Multiboot2 FB tag\n");
+    kprintf("  Layout: /tmp/.X11-unix, /etc/X11, /var/log - see /etc/vnl-x11.env\n");
+    kprintf("  Syscalls: socket bind listen accept connect socketpair; sendto/recvfrom (peer addr NULL)\n");
+    kprintf("  Video: /dev/fb0 ioctl + mmap (DRI/KMS still TODO for real Mesa)\n");
+    kprintf("  startx: runs embedded /usr/bin/Xorg (ring3 ELF mmap fb) or kernel FB fallback\n");
+}
+
+static void cmd_startx(int c, char **v) {
+    (void)c;
+    (void)v;
+    if (!fb_is_available()) {
+        kprintf("startx: linear framebuffer required (GRUB entry with Multiboot2 FB / VNC).\n");
+        kprintf("        Text-only VGA cannot run the graphical session.\n");
+        return;
+    }
+    sh_run_string("export DISPLAY=:0\nexport XAUTHORITY=/run/xauth_0\n");
+    int fd = vfs_open("/tmp/.X11-unix/X0", VFS_O_WRITE | VFS_O_CREATE | VFS_O_TRUNC);
+    if (fd >= 0) {
+        static const char stub[] = "# VNL stub AF_UNIX path for :0\n";
+        vfs_write(fd, stub, sizeof(stub) - 1);
+        vfs_close(fd);
+    }
+    int e = vfs_open("/run/xauth_0", VFS_O_WRITE | VFS_O_CREATE | VFS_O_TRUNC);
+    if (e >= 0)
+        vfs_close(e);
+    kprintf("DISPLAY=:0 - starting userspace /usr/bin/Xorg (embedded ELF) if present...\n");
+    int px = vnl_spawn_elf_path("/usr/bin/Xorg");
+    if (px > 0) {
+        kprintf("  Xorg stub pid %u: fills FB then exits; shell waits (no prompt until done).\n",
+                (unsigned)px);
+        sched_wait_pid((uint32_t)px);
+        /* Stub paints the whole linear FB; mirror only updates ~80x25×8px — clear first. */
+        fb_console_reset();
+        vga_fb_mirror_refresh();
+        kprintf("  Session ended.\n");
+        return;
+    }
+    kprintf("  (spawn failed %d) kernel FB session - Esc or q to return.\n", px);
+    x11_minimal_session_run();
+}
+
 typedef struct { const char *name; void (*fn)(int, char**); } Command;
 static const Command cmds[] = {
     {"help",cmd_help},{"neofetch",cmd_neofetch},{"uname",cmd_uname},{"mem",cmd_mem},{"uptime",cmd_uptime},
@@ -628,6 +714,9 @@ static const Command cmds[] = {
     {"rm",cmd_rm},{"cd",cmd_cd},{"pwd",cmd_pwd},{"ps",cmd_ps},{"kill",cmd_kill},
     {"sleep",cmd_sleep},{"lspci",cmd_lspci},{"poweroff",cmd_poweroff},
     {"reboot",cmd_reboot},{"panic",cmd_panic},{"halt",cmd_halt},
+    {"ring3test",cmd_ring3test},
+    {"startx",cmd_startx},
+    {"x11info",cmd_x11info},
     {"sh",cmd_sh},{"bash",cmd_bash},{"eval",cmd_eval},{"source",cmd_source},
     {".",cmd_source},{"grep",cmd_grep},{"wc",cmd_wc},{"head",cmd_head},
     {"tail",cmd_tail},{"sort",cmd_sort},{"uniq",cmd_uniq},{"tr",cmd_tr},
@@ -649,13 +738,16 @@ int shell_exec_builtin(int argc, char **argv) {
 
 void shell_run(void) {
     char line[CMD_MAX]; char *argv[ARG_MAX];
-    vga_set_color(VGA_LGREEN, VGA_BLACK);
-    kprintf("VNL v0.2.0 — type 'help' for commands\n");
     vga_set_color(VGA_WHITE, VGA_BLACK);
+    kprintf("VNL v0.2.0 - type 'help' for commands\n");
     while (1) {
-        char cwd[128]; vfs_getcwd(cwd, sizeof(cwd));
-        vga_set_color(VGA_LGREEN, VGA_BLACK); kprintf("vnl:%s", cwd);
-        vga_set_color(VGA_WHITE, VGA_BLACK);  kprintf("# ");
+        vga_fb_mirror_refresh();
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+        kprintf("[");
+        vga_set_color(VGA_LGREEN, VGA_BLACK);
+        kprintf("vnl@vnl");
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+        kprintf("]$ ");
         if (readline(line, CMD_MAX) == 0) continue;
         push_history(line);
         int argc = parse_args(line, argv);

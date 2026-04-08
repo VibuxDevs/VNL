@@ -65,3 +65,8 @@ void gdt_init(void)
     gdt_flush(&gdt_ptr);
     tss_flush(GDT_TSS);
 }
+
+void tss_set_rsp0(uint64_t rsp0)
+{
+    tss.rsp[0] = rsp0;
+}

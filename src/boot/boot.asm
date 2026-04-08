@@ -32,7 +32,15 @@ mb2_start:
     dd 0                        ; arch: i386
     dd (mb2_end - mb2_start)    ; header length
     dd -(0xE85250D6 + 0 + (mb2_end - mb2_start))  ; checksum
-    dw 0                        ; end tag type
+    ; Framebuffer tag (type 5): linear fb for VGA text mirror (e.g. VNC)
+    dw 5
+    dw 0
+    dd 24                       ; size incl. padding to 8 bytes
+    dd 1024                     ; width (hint)
+    dd 768                      ; height
+    dd 32                       ; depth (32 bpp XRGB)
+    dd 0                        ; padding
+    dw 0                        ; end tag
     dw 0
     dd 8
 mb2_end:

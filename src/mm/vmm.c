@@ -43,11 +43,11 @@ static uint64_t alloc_pt_frame(void)
  * Returns a pointer to the PTE (level-1 entry).
  * If create=true, missing intermediate tables are allocated.
  */
-static uint64_t *vmm_get_pte(uint64_t *pml4, uint64_t virt, bool create)
+/* Walk page tables rooted at physical address root_phys (identity-mapped). */
+static uint64_t *vmm_get_pte_pml4_phys(uint64_t root_phys, uint64_t virt, bool create)
 {
-    uint64_t *table = pml4;
+    uint64_t *table = (uint64_t *)root_phys;
 
-    /* Levels: PML4 -> PDPT -> PD -> PT */
     for (int level = 3; level > 0; level--) {
         uint64_t idx;
         switch (level) {
@@ -63,11 +63,17 @@ static uint64_t *vmm_get_pte(uint64_t *pml4, uint64_t virt, bool create)
             table[idx] = frame | VMM_FLAG_PRESENT | VMM_FLAG_WRITE;
             table = (uint64_t *)frame;
         } else {
+            if (level != 3 && (entry & VMM_FLAG_HUGE))
+                return NULL;
             table = (uint64_t *)(entry & PAGE_MASK);
         }
     }
-    /* table now points to the PT; return pointer to the PTE */
     return &table[PT_IDX(virt)];
+}
+
+static uint64_t *vmm_get_pte(uint64_t *pml4, uint64_t virt, bool create)
+{
+    return vmm_get_pte_pml4_phys((uint64_t)pml4, virt, create);
 }
 
 /* ---- Public API -------------------------------------------------- */
@@ -98,6 +104,54 @@ uint64_t vmm_get_phys(uint64_t virt)
 {
     uint64_t *pte = vmm_get_pte(current_pml4, virt, false);
     if (!pte || !(*pte & VMM_FLAG_PRESENT)) return 0;
+    return (*pte & PAGE_MASK) | (virt & (PAGE_SIZE - 1));
+}
+
+void vmm_map_in_pml4(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t flags)
+{
+    uint64_t *pte = vmm_get_pte_pml4_phys(pml4_phys, virt, true);
+    *pte = (phys & PAGE_MASK) | flags | VMM_FLAG_PRESENT;
+    if (read_cr3() == pml4_phys)
+        asm volatile("invlpg (%0)" :: "r"(virt) : "memory");
+}
+
+void vmm_unmap_range_pml4(uint64_t pml4_phys, uint64_t virt, size_t nbytes)
+{
+    if (nbytes == 0) return;
+    uint64_t v = virt & PAGE_MASK;
+    uint64_t end = virt + nbytes;
+    while (v < end) {
+        uint64_t *pte = vmm_get_pte_pml4_phys(pml4_phys, v, false);
+        if (pte && (*pte & VMM_FLAG_PRESENT))
+            *pte = 0;
+        if (read_cr3() == pml4_phys)
+            asm volatile("invlpg (%0)" :: "r"(v) : "memory");
+        v += PAGE_SIZE;
+    }
+}
+
+uint64_t vmm_lookup_phys_pml4(uint64_t root_phys, uint64_t virt)
+{
+    uint64_t *table = (uint64_t *)root_phys;
+
+    for (int level = 3; level > 0; level--) {
+        uint64_t idx;
+        switch (level) {
+        case 3: idx = PML4_IDX(virt); break;
+        case 2: idx = PDPT_IDX(virt); break;
+        case 1: idx = PD_IDX(virt);   break;
+        default: idx = 0;
+        }
+        uint64_t entry = table[idx];
+        if (!(entry & VMM_FLAG_PRESENT))
+            return 0;
+        if (level != 3 && (entry & VMM_FLAG_HUGE))
+            return 0;
+        table = (uint64_t *)(entry & PAGE_MASK);
+    }
+    uint64_t *pte = &table[PT_IDX(virt)];
+    if (!(*pte & VMM_FLAG_PRESENT))
+        return 0;
     return (*pte & PAGE_MASK) | (virt & (PAGE_SIZE - 1));
 }
 

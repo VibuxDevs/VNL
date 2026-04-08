@@ -1,8 +1,10 @@
 #include "vfs.h"
+#include "devfs.h"
 #include "heap.h"
 #include "string.h"
 #include "printf.h"
 #include "cpu.h"
+#include "errno.h"
 
 /* ---- Node store -------------------------------------------------- */
 static VFSNode nodes[VFS_MAX_NODES];
@@ -33,7 +35,10 @@ static VFSNode *node_get(uint32_t inode)
 static VFSNode *node_alloc(void)
 {
     for (int i = 0; i < VFS_MAX_NODES; i++)
-        if (!nodes[i].used) return &nodes[i];
+        if (!nodes[i].used) {
+            memset(&nodes[i], 0, sizeof(nodes[i]));
+            return &nodes[i];
+        }
     return NULL;
 }
 
@@ -163,9 +168,9 @@ int vfs_open(const char *path, int flags)
     }
 
     VFSNode *n = node_get((uint32_t)inode);
-    if (!n || n->type != VFS_FILE) return -1;
+    if (!n || (n->type != VFS_FILE && n->type != VFS_CHR)) return -1;
 
-    if (flags & VFS_O_TRUNC) {
+    if ((flags & VFS_O_TRUNC) && n->type == VFS_FILE) {
         kfree(n->data);
         n->data = NULL;
         n->size = n->capacity = 0;
@@ -191,6 +196,8 @@ int vfs_read(int fd, void *buf, size_t len)
     if (!(fds[fd].flags & VFS_O_READ)) return -1;
     VFSNode *n = node_get(fds[fd].inode);
     if (!n) return -1;
+    if (n->type == VFS_CHR)
+        return devfs_chr_read(n, buf, len, &fds[fd].offset);
     size_t avail = n->size - fds[fd].offset;
     if (avail == 0) return 0;
     size_t to_read = (len < avail) ? len : avail;
@@ -204,7 +211,10 @@ int vfs_write(int fd, const void *buf, size_t len)
     if (fd < 0 || fd >= VFS_MAX_FDS || !fds[fd].open) return -1;
     if (!(fds[fd].flags & VFS_O_WRITE)) return -1;
     VFSNode *n = node_get(fds[fd].inode);
-    if (!n || n->type != VFS_FILE) return -1;
+    if (!n) return -1;
+    if (n->type == VFS_CHR)
+        return devfs_chr_write(n, buf, len, &fds[fd].offset);
+    if (n->type != VFS_FILE) return -1;
 
     size_t new_end = fds[fd].offset + len;
     if (new_end > n->capacity) {
@@ -289,6 +299,42 @@ int vfs_stat(const char *path, VFSNodeType *type, size_t *size)
     if (!n) return -1;
     if (type) *type = n->type;
     if (size) *size = n->size;
+    return 0;
+}
+
+int vfs_ioctl(int fd, uint64_t request, void *arg)
+{
+    if (fd < 0 || fd >= VFS_MAX_FDS || !fds[fd].open) return -EBADF;
+    VFSNode *n = node_get(fds[fd].inode);
+    if (!n || n->type != VFS_CHR) return -ENOTTY;
+    return devfs_chr_ioctl(n, request, arg);
+}
+
+VFSNode *vfs_node_from_fd(int fd)
+{
+    if (fd < 0 || fd >= VFS_MAX_FDS || !fds[fd].open) return NULL;
+    return node_get(fds[fd].inode);
+}
+
+int vfs_mknod_chr(const char *path, uint16_t major, uint16_t minor)
+{
+    if (vfs_resolve(path) >= 0) return -1;
+    char leaf[VFS_NAME_MAX];
+    int parent = resolve_parent(path, leaf);
+    if (parent < 0 || !leaf[0]) return -1;
+    VFSNode *pn = node_get((uint32_t)parent);
+    if (!pn || pn->type != VFS_DIR) return -1;
+    VFSNode *nn = node_alloc();
+    if (!nn) return -1;
+    nn->used       = true;
+    nn->type       = VFS_CHR;
+    nn->inode      = next_inode++;
+    nn->parent     = (uint32_t)parent;
+    nn->dev_major  = major;
+    nn->dev_minor  = minor;
+    nn->data       = NULL;
+    nn->size       = nn->capacity = 0;
+    strncpy(nn->name, leaf, VFS_NAME_MAX - 1);
     return 0;
 }
 

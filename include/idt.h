@@ -18,4 +18,5 @@ typedef void (*ISRHandler)(Registers *r);
 void idt_init(void);
 void idt_set_handler(uint8_t vec, ISRHandler fn);
 void idt_set_raw_handler(uint8_t vec, uint64_t addr);
+void idt_set_interrupt_dpl(uint8_t vec, uint8_t dpl); /* 0..3 for INT gate */
 void isr_handler(Registers *r);   /* called from ASM stubs */

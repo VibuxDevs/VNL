@@ -64,6 +64,14 @@ void idt_set_raw_handler(uint8_t vec, uint64_t addr)
     idt_set_gate(vec, addr, 0, 0);
 }
 
+void idt_set_interrupt_dpl(uint8_t vec, uint8_t dpl)
+{
+    uint8_t a = idt[vec].type_attr;
+    idt[vec].type_attr = (uint8_t)((a & (uint8_t)~(3u << 5)) | (uint8_t)((dpl & 3u) << 5));
+    /* Reload IDT so change is active (table is in place; lfence optional). */
+    idt_flush(&idt_ptr);
+}
+
 void isr_handler(Registers *r)
 {
     /* Call registered handler if any */

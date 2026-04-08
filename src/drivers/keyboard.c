@@ -37,12 +37,12 @@ static void kbd_push(uint8_t c)
     if (next != kbd_tail) { kbd_buf[kbd_head] = c; kbd_head = next; }
 }
 
-static void keyboard_irq(Registers *r)
+static void kbd_handle_byte(uint8_t sc)
 {
-    (void)r;
-    uint8_t sc = inb(KBD_DATA);
-
-    if (sc == 0xE0) { e0_pending = true; goto eoi; }
+    if (sc == 0xE0) {
+        e0_pending = true;
+        return;
+    }
 
     bool released = (sc & 0x80) != 0;
     sc &= 0x7F;
@@ -64,18 +64,51 @@ static void keyboard_irq(Registers *r)
             }
             if (ext) kbd_push(ext);
         }
-        goto eoi;
+        return;
     }
 
-    if (sc == 0x2A || sc == 0x36) { shift_held = !released; goto eoi; }
-    if (!released && sc == 0x3A)  { caps_lock = !caps_lock; goto eoi; }
+    if (sc == 0x2A || sc == 0x36) {
+        shift_held = !released;
+        return;
+    }
+    if (!released && sc == 0x3A) {
+        caps_lock = !caps_lock;
+        return;
+    }
 
     if (!released && sc < 128) {
-        bool upper = shift_held ^ caps_lock;
-        char c = upper ? sc_upper[sc] : sc_lower[sc];
+        /*
+         * Caps Lock must only toggle A–Z. XOR with shift on the whole table
+         * breaks the number row: '1' becomes '!' while caps is on.
+         */
+        char c;
+        if (shift_held)
+            c = sc_upper[sc];
+        else {
+            c = sc_lower[sc];
+            if (caps_lock && c >= 'a' && c <= 'z')
+                c = (char)(c - 'a' + 'A');
+        }
         if (c) kbd_push((uint8_t)c);
     }
-eoi:
+}
+
+static void keyboard_irq(Registers *r)
+{
+    (void)r;
+
+    /* PS/2 shares 0x60 with the aux (mouse). Status bit 5 = aux data.
+     * Decoding mouse bytes as scancodes fills the buffer with junk. */
+    for (int n = 0; n < 32; n++) {
+        uint8_t st = inb(KBD_STATUS);
+        if (!(st & 0x01))
+            break;
+        uint8_t data = inb(KBD_DATA);
+        if (st & 0x20)
+            continue;
+        kbd_handle_byte(data);
+    }
+
     outb(0x20, 0x20);
 }
 

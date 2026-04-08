@@ -7,6 +7,7 @@ BITS 64
 
 extern sched_timer_c   ; uint64_t sched_timer_c(Registers *r)
 extern sched_yield_c   ; uint64_t sched_yield_c(Registers *r)
+extern sched_pending_cr3
 
 %macro PUSH_REGS 0
     push rax
@@ -77,6 +78,8 @@ sched_timer_stub:
     call sched_timer_c  ; returns new RSP or 0
     test rax, rax
     jz   .no_switch
+    mov  rbx, [rel sched_pending_cr3]
+    mov  cr3, rbx
     mov  rsp, rax       ; *** context switch ***
 .no_switch:
     POP_REGS
@@ -93,6 +96,8 @@ sched_yield_stub:
     call sched_yield_c
     test rax, rax
     jz   .no_switch
+    mov  rbx, [rel sched_pending_cr3]
+    mov  cr3, rbx
     mov  rsp, rax
 .no_switch:
     POP_REGS
