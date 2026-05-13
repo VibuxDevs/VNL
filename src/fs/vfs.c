@@ -134,6 +134,10 @@ void vfs_init(void)
     vfs_mkdir("/etc");
     vfs_mkdir("/tmp");
     vfs_mkdir("/home");
+    vfs_mkdir("/usr");
+    vfs_mkdir("/usr/bin");
+    vfs_mkdir("/var");
+    vfs_mkdir("/var/cache");
 }
 
 int vfs_open(const char *path, int flags)

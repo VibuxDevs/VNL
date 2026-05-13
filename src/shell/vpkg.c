@@ -31,13 +31,18 @@ void cmd_vpkg(int argc, char **argv)
             "  ]\n"
             "}\n";
 
+        vfs_mkdir("/var");
+        vfs_mkdir("/var/cache");
         int fd = vfs_open("/var/cache/manifest.json", VFS_O_WRITE | VFS_O_CREATE | VFS_O_TRUNC);
         if (fd >= 0) {
             vfs_write(fd, manifest_data, strlen(manifest_data));
             vfs_close(fd);
+            vga_set_color(VGA_LGREEN, VGA_BLACK);
+            kprintf("SUCCESS: Upstream catalog synced. 3 verified packages loaded.\n");
+        } else {
+            vga_set_color(VGA_LRED, VGA_BLACK);
+            kprintf("ERROR: Failed to write upstream manifest cache to /var/cache/manifest.json\n");
         }
-        vga_set_color(VGA_LGREEN, VGA_BLACK);
-        kprintf("SUCCESS: Upstream catalog synced. 3 verified packages loaded.\n");
         vga_set_color(VGA_WHITE, VGA_BLACK);
         return;
     }
@@ -106,16 +111,20 @@ void cmd_vpkg(int argc, char **argv)
         vga_set_color(VGA_LGREEN, VGA_BLACK); kprintf("OK.\n");
         vga_set_color(VGA_WHITE, VGA_BLACK);
 
+        vfs_mkdir("/usr");
+        vfs_mkdir("/usr/bin");
         char out_path[128];
         ksprintf(out_path, sizeof(out_path), "/usr/bin/%s", target);
         int fd = vfs_open(out_path, VFS_O_WRITE | VFS_O_CREATE | VFS_O_TRUNC);
         if (fd >= 0) {
             vfs_write(fd, pkg_marker, strlen(pkg_marker));
             vfs_close(fd);
+            vga_set_color(VGA_LGREEN, VGA_BLACK);
+            kprintf("SUCCESS: Package %s (v%s) deployed and ready. Run '%s' anytime.\n", target, ver, target);
+        } else {
+            vga_set_color(VGA_LRED, VGA_BLACK);
+            kprintf("ERROR: Failed to deploy verified marker block to %s\n", out_path);
         }
-
-        vga_set_color(VGA_LGREEN, VGA_BLACK);
-        kprintf("SUCCESS: Package %s (v%s) deployed and ready. Run '%s' anytime.\n", target, ver, target);
         vga_set_color(VGA_WHITE, VGA_BLACK);
         return;
     }
