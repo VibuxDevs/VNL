@@ -13,6 +13,11 @@
 
 static int cur_row, cur_col;
 static uint8_t cur_color;
+static VGAPutcharHook s_putchar_hook = NULL;
+
+void vga_set_putchar_hook(VGAPutcharHook hook) {
+    s_putchar_hook = hook;
+}
 
 static inline uint16_t make_entry(char c, uint8_t color)
 {
@@ -77,6 +82,7 @@ static void scroll(void)
 
 void vga_putchar(char c)
 {
+    if (s_putchar_hook) s_putchar_hook(c);
     if (c == '\n') {
         cur_col = 0;
         cur_row++;

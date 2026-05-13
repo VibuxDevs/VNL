@@ -22,6 +22,12 @@
 #include "neovim.h"
 #include "htop.h"
 #include "doom.h"
+#include "desktop.h"
+
+static void cmd_desktop(int argc, char **argv) {
+    (void)argc; (void)argv;
+    desktop_run();
+}
 
 #define CMD_MAX    256
 #define ARG_MAX    16
@@ -276,7 +282,7 @@ static void cmd_help(int c, char **v)   { (void)c;(void)v;
     kprintf("Commands: help neofetch uname mem uptime clear echo color hello\n");
     kprintf("          ls cat write mkdir rm cd pwd\n");
     kprintf("          ps kill sleep lspci poweroff reboot panic halt\n");
-    kprintf("          sh bash eval source ring3test gui guiinfo vinstall vpkg\n");
+    kprintf("          sh bash eval source ring3test gui guiinfo vinstall vpkg desktop\n");
     kprintf("          neovim-vnl htop-gui doom-generic\n");
     kprintf("          grep wc head tail sort uniq tr tee\n");
     kprintf("Shell: Variables, if/while/for, pipes, redirects, functions\n");
@@ -712,7 +718,7 @@ static const Command cmds[] = {
     {"tail",cmd_tail},{"sort",cmd_sort},{"uniq",cmd_uniq},{"tr",cmd_tr},
     {"tee",cmd_tee},{"test",cmd_test_cmd},{"vinstall",cmd_vinstall},
     {"vpkg",cmd_vpkg},{"neovim-vnl",cmd_neovim_vnl},{"htop-gui",cmd_htop_gui},
-    {"doom-generic",cmd_doom_generic},{NULL,NULL}
+    {"doom-generic",cmd_doom_generic},{"desktop",cmd_desktop},{NULL,NULL}
 };
 
 static bool is_elf_file(const char *path) {
@@ -762,8 +768,27 @@ int shell_exec_builtin(int argc, char **argv) {
     return 127;
 }
 
+void shell_exec_line(const char *line) {
+    if (!line || !*line) return;
+    char *argv[ARG_MAX];
+    char tmp[CMD_MAX];
+    strncpy(tmp, line, CMD_MAX-1);
+    tmp[CMD_MAX-1] = '\0';
+    int argc = parse_args(tmp, argv);
+    if (argc == 0) return;
+
+    bool found = false;
+    for (const Command *c = cmds; c->name; c++) {
+        if (strcmp(argv[0], c->name) == 0) { c->fn(argc, argv); found = true; break; }
+    }
+    if (!found) {
+        int r = sh_exec(line);
+        if (r == 127) kprintf("vnl: %s: command not found\n", argv[0]);
+    }
+}
+
 void shell_run(void) {
-    char line[CMD_MAX]; char *argv[ARG_MAX];
+    char line[CMD_MAX];
     vga_set_color(VGA_WHITE, VGA_BLACK);
     kprintf("VNL v0.2.0 - type 'help' for commands\n");
     while (1) {
@@ -776,16 +801,6 @@ void shell_run(void) {
         kprintf("]$ ");
         if (readline(line, CMD_MAX) == 0) continue;
         push_history(line);
-        int argc = parse_args(line, argv);
-        if (argc == 0) continue;
-        bool found = false;
-        for (const Command *c = cmds; c->name; c++) {
-            if (strcmp(argv[0], c->name) == 0) { c->fn(argc, argv); found = true; break; }
-        }
-        if (!found) {
-            /* Try as a shell expression (VAR=val, etc.) */
-            int r = sh_exec(line);
-            if (r == 127) kprintf("vnl: %s: command not found\n", argv[0]);
-        }
+        shell_exec_line(line);
     }
 }

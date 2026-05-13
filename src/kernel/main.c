@@ -58,6 +58,39 @@ typedef struct PACKED {
     uint32_t mem_upper;   /* KiB above 1 MiB */
 } MB2TagMem;
 
+static void parse_mb2_mmap(uint64_t mb_info_phys) {
+    uint8_t *ptr = (uint8_t *)mb_info_phys;
+    uint32_t total_size = *(uint32_t *)ptr;
+    uint8_t *end = ptr + total_size;
+    ptr += 8;
+
+    while (ptr < end) {
+        MB2Tag *tag = (MB2Tag *)ptr;
+        if (tag->type == MB2_TAG_END) break;
+        if (tag->type == MB2_TAG_MMAP) {
+            struct {
+                MB2Tag hdr;
+                uint32_t entry_size;
+                uint32_t entry_version;
+                struct {
+                    uint64_t addr;
+                    uint64_t len;
+                    uint32_t type;
+                    uint32_t zero;
+                } entries[];
+            } *mmap = (void *)tag;
+            int num_entries = (tag->size - 16) / mmap->entry_size;
+            for (int i = 0; i < num_entries; i++) {
+                /* Type 1 is Usable RAM */
+                if (mmap->entries[i].type != 1) {
+                    pmm_reserve(mmap->entries[i].addr, mmap->entries[i].len);
+                }
+            }
+        }
+        ptr += ALIGN_UP(tag->size, 8);
+    }
+}
+
 static uint64_t parse_mb2_memory(uint64_t mb_info_phys)
 {
     /* mb_info_phys is still identity-mapped (below 4 GiB) */
@@ -127,6 +160,7 @@ void kernel_main(uint32_t magic, uint64_t mb_info)
     kprintf("[INIT] PMM...\n");
     uint64_t mem_kb = (mb_info) ? parse_mb2_memory(mb_info) : 128 * 1024;
     pmm_init(mem_kb);
+    if (mb_info) parse_mb2_mmap(mb_info);
 
     /* Reserve physical frames used by the kernel image itself.
      * kernel_end is the high-VMA address; its physical address is
