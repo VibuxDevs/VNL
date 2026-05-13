@@ -26,6 +26,14 @@
       "url": "https://raw.githubusercontent.com/VibuxDevs/VNL-Packages/main/pkgs/doom-generic.bin",
       "checksum": "c7b8a9f0e1d2",
       "size": 6872
+    },
+    {
+      "name": "vsnake",
+      "version": "1.0.1",
+      "description": "Premium high-fidelity ASCII snake game for VNL Perfect Edition.",
+      "url": "https://raw.githubusercontent.com/VibuxDevs/VNL-Packages/main/pkgs/vsnake.bin",
+      "checksum": "e5f4d3c2b1a0",
+      "size": 1024
     }
   ]
 }

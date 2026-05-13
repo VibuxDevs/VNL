@@ -24,6 +24,7 @@
 #include "doom.h"
 #include "desktop.h"
 #include "vnet.h"
+#include "vsnake.h"
 
 static void cmd_desktop(int argc, char **argv) {
     (void)argc; (void)argv;
@@ -576,7 +577,7 @@ static const Command cmds[] = {
     {"tail",cmd_tail},{"sort",cmd_sort},{"uniq",cmd_uniq},{"tr",cmd_tr},
     {"tee",cmd_tee},{"test",cmd_test_cmd},{"vinstall",cmd_vinstall},
     {"vpkg",cmd_vpkg},{"neovim-vnl",cmd_neovim_vnl},{"htop-gui",cmd_htop_gui},
-    {"doom-generic",cmd_doom_generic},{"desktop",cmd_desktop},{"vbrowser",NULL},{"ping",cmd_ping},{"netcfg",cmd_netcfg},{NULL,NULL}
+    {"doom-generic",cmd_doom_generic},{"desktop",cmd_desktop},{"vbrowser",NULL},{"ping",cmd_ping},{"netcfg",cmd_netcfg},{"vsnake",cmd_vsnake},{NULL,NULL}
 };
 
 static bool is_elf_file(const char *path) {
