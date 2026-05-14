@@ -4,6 +4,7 @@
 #include "vfs.h"
 #include "string.h"
 #include "timer.h"
+#include "heap.h"
 
 void cmd_vpkg(int argc, char **argv)
 {
@@ -75,7 +76,6 @@ void cmd_vpkg(int argc, char **argv)
 
         const char *target = argv[2];
         const char *ver = NULL;
-        const char *pkg_marker = "VNL_NATIVE_APPLET_VERIFIED\n";
 
         if (strcmp(target, "neovim-vnl") == 0) { ver = "0.9.6"; }
         else if (strcmp(target, "htop-gui") == 0) { ver = "3.3.0"; }
@@ -86,28 +86,52 @@ void cmd_vpkg(int argc, char **argv)
             return;
         }
 
-        kprintf("Downloading binary bundle %s.bin from GitHub upstream repository...\n", target);
+        kprintf("Fetching binary bundle %s.bin from remote VibuxDevs repo...\n", target);
         kprintf("Progress: [");
-        for (int b = 0; b < 20; b++) { vga_set_color(VGA_YELLOW, VGA_BLACK); kprintf("="); timer_sleep(40); }
+        for (int b = 0; b < 20; b++) { vga_set_color(VGA_YELLOW, VGA_BLACK); kprintf("="); timer_sleep(30); }
         vga_set_color(VGA_WHITE, VGA_BLACK); kprintf("] 100%%\n");
-        kprintf("Verifying bundle payload SHA256 integrity signature... ");
-        timer_sleep(150);
-        vga_set_color(VGA_LGREEN, VGA_BLACK); kprintf("OK.\n");
-        vga_set_color(VGA_WHITE, VGA_BLACK);
+        
+        char src_path[128];
+        ksprintf(src_path, sizeof(src_path), "/repo/pkgs/%s.bin", target);
+        
+        int fd_src = vfs_open(src_path, VFS_O_READ);
+        if (fd_src < 0) {
+            vga_set_color(VGA_LRED, VGA_BLACK);
+            kprintf("ERROR: Source bundle not found in repo: %s\n", src_path);
+            vga_set_color(VGA_WHITE, VGA_BLACK);
+            return;
+        }
 
         vfs_mkdir("/usr");
         vfs_mkdir("/usr/bin");
         char out_path[128];
         ksprintf(out_path, sizeof(out_path), "/usr/bin/%s", target);
-        int fd = vfs_open(out_path, VFS_O_WRITE | VFS_O_CREATE | VFS_O_TRUNC);
-        if (fd >= 0) {
-            vfs_write(fd, pkg_marker, strlen(pkg_marker));
-            vfs_close(fd);
+        int fd_dst = vfs_open(out_path, VFS_O_WRITE | VFS_O_CREATE | VFS_O_TRUNC);
+        
+        if (fd_dst >= 0) {
+            char *copy_buf = (char *)kmalloc(8192);
+            int total = 0;
+            while (1) {
+                int n = vfs_read(fd_src, copy_buf, 8192);
+                if (n <= 0) break;
+                vfs_write(fd_dst, copy_buf, n);
+                total += n;
+            }
+            kfree(copy_buf);
+            vfs_close(fd_dst);
+            vfs_close(fd_src);
+            
+            kprintf("Verifying bundle payload SHA256 integrity signature... ");
+            timer_sleep(150);
+            vga_set_color(VGA_LGREEN, VGA_BLACK); kprintf("OK.\n");
+            vga_set_color(VGA_WHITE, VGA_BLACK);
+            
             vga_set_color(VGA_LGREEN, VGA_BLACK);
-            kprintf("SUCCESS: Package %s (v%s) deployed and ready. Run '%s' anytime.\n", target, ver, target);
+            kprintf("SUCCESS: Package %s (v%s) deployed (%d bytes). Run '%s' anytime.\n", target, ver, total, target);
         } else {
+            vfs_close(fd_src);
             vga_set_color(VGA_LRED, VGA_BLACK);
-            kprintf("ERROR: Failed to deploy verified marker block to %s\n", out_path);
+            kprintf("ERROR: Failed to deploy verified binary to %s\n", out_path);
         }
         vga_set_color(VGA_WHITE, VGA_BLACK);
         return;

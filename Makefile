@@ -15,7 +15,7 @@ SRCDIR     := src
 BUILDDIR   := build
 
 ASM_SRCS   := $(shell find $(SRCDIR) -name '*.asm')
-C_SRCS     := $(shell find $(SRCDIR) -name '*.c')
+C_SRCS     := $(shell find $(SRCDIR) -name '*.c' | grep -v '_standalone.c')
 
 ASM_OBJS   := $(patsubst $(SRCDIR)/%.asm,$(BUILDDIR)/%.asm.o,$(ASM_SRCS))
 C_OBJS     := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.c.o,$(C_SRCS))
@@ -49,6 +49,8 @@ $(BUILDDIR)/%.c.o: $(SRCDIR)/%.c
 	@echo "[CC]  $<"
 
 iso: $(KERNEL)
+	mkdir -p iso/repo/pkgs
+	cp -r repo/pkgs/*.bin iso/repo/pkgs/
 	cp $(KERNEL) iso/boot/vnl.kernel
 	grub-mkrescue -o $(ISO) iso
 	@echo "[ISO] $(ISO)"

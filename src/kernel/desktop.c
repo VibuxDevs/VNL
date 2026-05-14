@@ -6,14 +6,12 @@
 #include "string.h"
 #include "timer.h"
 #include "vfs.h"
-#include "neovim.h"
-#include "htop.h"
-#include "doom.h"
 #include "vinstall.h"
 #include "vga.h"
 #include "heap.h"
 #include "fonts.h"
 #include "shell.h"
+#include "elf_load.h"
 #include "rtl8139.h"
 #include "vnet.h"
 
@@ -169,9 +167,9 @@ void desktop_run(void) {
         {20, 20, 64, 64, "My Computer", NULL, NULL, 0xFFCCCCCC},
         {20, 100, 64, 64, "Terminal", NULL, NULL, 0xFF444444},
         {20, 180, 64, 64, "Browser", NULL, NULL, 0xFF0000AA},
-        {20, 260, 64, 64, "Editor", "/usr/bin/neovim-vnl", cmd_neovim_vnl, 0xFF00AA00},
-        {20, 340, 64, 64, "HTOP", "/usr/bin/htop-gui", cmd_htop_gui, 0xFF00AAAA},
-        {100, 20, 64, 64, "DOOM", "/usr/bin/doom-generic", cmd_doom_generic, 0xFFAA0000},
+        {20, 260, 64, 64, "Editor", "/usr/bin/neovim-vnl", NULL, 0xFF00AA00},
+        {20, 340, 64, 64, "HTOP", "/usr/bin/htop-gui", NULL, 0xFF00AAAA},
+        {100, 20, 64, 64, "DOOM", "/usr/bin/doom-generic", NULL, 0xFFAA0000},
         {100, 100, 64, 64, "Install", NULL, cmd_vinstall, 0xFFAA5500},
         {100, 180, 64, 64, "Music", NULL, NULL, 0xFF0074D9}
     };
@@ -322,6 +320,11 @@ void desktop_run(void) {
                             if (mx >= active_icons[i].x && mx < active_icons[i].x + 64 && my >= active_icons[i].y && my < active_icons[i].y + 64) {
                                 selected_icon = i;
                                 if (active_icons[i].action) { vga_set_putchar_hook(NULL); fb_console_reset(); active_icons[i].action(0, NULL); vga_set_putchar_hook(term_putchar_hook); mouse_flush(); }
+                                else if (active_icons[i].binary_path) {
+                                    vga_set_putchar_hook(NULL); fb_console_reset();
+                                    vnl_spawn_elf_path(active_icons[i].binary_path);
+                                    vga_set_putchar_hook(term_putchar_hook); mouse_flush();
+                                }
                                 else if (strcmp(active_icons[i].label, "Terminal") == 0) window_create(WIN_TERM, 100 + (i*10), 100, 420, 300, "VNL Command Prompt");
                                 else if (strcmp(active_icons[i].label, "Browser") == 0) window_create(WIN_BROWSER, 150, 120, 500, 350, "VBrowser Professional");
                                 else if (strcmp(active_icons[i].label, "My Computer") == 0) window_create(WIN_EXPLORER, 80, 80, 300, 400, "My Computer");
