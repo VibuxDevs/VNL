@@ -16,11 +16,15 @@
 #include "user_task.h"
 #include "fb.h"
 #include "gui.h"
+#include "elf_load.h"
 #include "vinstall.h"
 #include "vpkg.h"
+#include "neovim.h"
+#include "htop.h"
+#include "doom.h"
 #include "desktop.h"
 #include "vnet.h"
-#include "elf_load.h"
+#include "vsnake.h"
 
 static void cmd_desktop(int argc, char **argv) {
     (void)argc; (void)argv;
@@ -570,31 +574,11 @@ static const Command cmds[] = {
     {"guiinfo",cmd_guiinfo},
     {"sh",cmd_sh},{"bash",cmd_bash},{"eval",cmd_eval},{"source",cmd_source},
     {".",cmd_source},{"grep",cmd_grep},{"wc",cmd_wc},{"head",cmd_head},
-    {"vinstall",cmd_vinstall},
-    {"vpkg",cmd_vpkg},
-    {"desktop",cmd_desktop},
-    {"ping",cmd_ping},
-    {"netcfg",cmd_netcfg},
-    {NULL,NULL}
+    {"tail",cmd_tail},{"sort",cmd_sort},{"uniq",cmd_uniq},{"tr",cmd_tr},
+    {"tee",cmd_tee},{"test",cmd_test_cmd},{"vinstall",cmd_vinstall},
+    {"vpkg",cmd_vpkg},{"neovim-vnl",cmd_neovim_vnl},{"htop-gui",cmd_htop_gui},
+    {"doom-generic",cmd_doom_generic},{"desktop",cmd_desktop},{"vbrowser",NULL},{"ping",cmd_ping},{"netcfg",cmd_netcfg},{"vsnake",cmd_vsnake},{NULL,NULL}
 };
-
-static bool try_exec_external(const char *cmd, int argc, char **argv) {
-    char path[128];
-    ksprintf(path, sizeof(path), "/usr/bin/%s", cmd);
-    if (vfs_resolve(path) >= 0) {
-        kprintf("[EXEC] Launching external VNL binary: %s\n", path);
-        /* If it's a verified app, we use the ELF loader */
-        int pid = vnl_spawn_elf_path(path);
-        if (pid > 0) {
-            kprintf("Process spawned (PID %d). Waiting for termination...\n", pid);
-            /* In a real shell we'd wait here, for now we just return to prompt */
-            return true;
-        } else {
-            kprintf("Error: Failed to spawn ELF binary at %s (code %d)\n", path, pid);
-        }
-    }
-    return false;
-}
 
 static bool is_elf_file(const char *path) {
     int fd = vfs_open(path, VFS_O_READ);
