@@ -113,7 +113,7 @@ static void print_banner(void)
         "\n"
     );
     vga_set_color(VGA_YELLOW, VGA_BLACK);
-    kprintf("  Vibe Not Linux v0.2.0 - 64-bit kernel\n");
+    kprintf("  Vibe Not Linux v0.3.0 - 64-bit kernel\n");
     kprintf("  Built: " __DATE__ " " __TIME__ "\n\n");
     vga_set_color(VGA_LGREEN, VGA_BLACK);
 }
