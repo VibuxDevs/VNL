@@ -1,6 +1,6 @@
 # VNL — Vibe Not Linux
 
-#VNL IS CURRENTLY ON HOLD FOR A CUSTOM KERNEL MADE IN RUST
+# VNL IS CURRENTLY ON HOLD FOR A CUSTOM KERNEL MADE IN RUST
 
 
 A 64-bit x86_64 Unix-like hobby kernel written from scratch in C and NASM assembly.
