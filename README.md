@@ -1,11 +1,11 @@
 # VNL — Vibe Not Linux
 
-# VNL IS CURRENTLY ON HOLD FOR A CUSTOM KERNEL MADE IN RUST
-
-
 A 64-bit x86_64 Unix-like hobby kernel written from scratch in C and NASM assembly.
 
 ---
+
+## Note
+I will be working less on vnl for i am starting a different kernel project written in rust. This project will still be active, feel free to contribute!
 
 ## Features
 
